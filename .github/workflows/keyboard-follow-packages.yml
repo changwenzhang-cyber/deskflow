@@ -92,9 +92,51 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: ctest --test-dir build/src/unittests --build-config Release --output-on-failure --verbose
 
-      - name: Package
+      - name: Package macOS DMG
+        if: runner.os == 'macOS'
         shell: bash
         run: cmake --build build --config Release --target package --parallel 8
+
+      - name: Package Windows portable ZIP
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: cpack --config build/CPackConfig.cmake -G ZIP -C Release -B build
+
+      - name: Smoke test Windows portable ZIP
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/test-package
+
+      - name: Upload Windows portable ZIP
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: keyboard-follow-windows-x64-portable
+          path: build/deskflow[-_]*-portable.zip
+          if-no-files-found: error
+
+      - name: Package Windows MSI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cpack --config build/CPackConfig.cmake -G WIX -C Release -B build
+          $packageExit = $LASTEXITCODE
+          if ($packageExit -ne 0) {
+            $wixLog = 'build/_CPack_Packages/win64/WIX/wix.log'
+            if (Test-Path $wixLog) {
+              Get-Content $wixLog
+            } else {
+              Write-Warning "WiX log not found: $wixLog"
+            }
+          }
+          exit $packageExit
+
+      - name: Upload WiX log
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: keyboard-follow-windows-x64-wix-log
+          path: build/_CPack_Packages/win64/WIX/wix.log
+          if-no-files-found: warn
 
       - name: Confirm requested installer exists
         shell: bash
@@ -107,14 +149,13 @@ jobs:
           fi
           printf '%s\n' "${packages[@]}"
 
-      - name: Smoke test packaged Core
+      - name: Smoke test macOS package
+        if: runner.os == 'macOS'
         uses: ./.github/actions/test-package
 
       - name: Upload installers
         uses: actions/upload-artifact@v7
         with:
           name: keyboard-follow-${{ matrix.name }}
-          path: |
-            build/deskflow[-_]*.${{ matrix.package-extension }}
-            build/deskflow[-_]*-portable.zip
+          path: build/deskflow[-_]*.${{ matrix.package-extension }}
           if-no-files-found: error
