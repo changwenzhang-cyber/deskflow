@@ -79,11 +79,18 @@ jobs:
         shell: bash
         run: cmake --build build --config Release --parallel 8
 
+      - name: Stage translations for Visual Studio tests
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build/src/translations | Out-Null
+          Copy-Item build/translations/deskflow_*.qm build/src/translations/ -ErrorAction Stop
+
       - name: Run existing unit and protocol tests
         shell: bash
         env:
           QT_QPA_PLATFORM: offscreen
-        run: ctest --test-dir build/src/unittests --build-config Release --output-on-failure
+        run: ctest --test-dir build/src/unittests --build-config Release --output-on-failure --verbose
 
       - name: Package
         shell: bash
