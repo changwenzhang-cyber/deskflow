@@ -1,0 +1,107 @@
+# SPDX-FileCopyrightText: (C) 2026 Deskflow Developers
+# SPDX-License-Identifier: MIT
+
+name: Keyboard Follow packages
+
+on:
+  push:
+    branches: [feat/keyboard-follow]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  packages:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            runner: macos-15
+            qt-version: 6.11.2
+            arch: arm64
+            package-extension: dmg
+          - name: windows-x64
+            runner: windows-2022
+            qt-version: 6.11.2
+            arch: amd64
+            triplet: x64-windows-release
+            package-extension: msi
+
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: ${{ matrix.arch }}
+          spectre: true
+
+      - name: Install dependencies and WiX
+        id: dependencies
+        uses: ./.github/actions/install-dependencies
+        with:
+          qt-version: ${{ matrix.qt-version }}
+          vcpkg-triplet: ${{ matrix.triplet }}
+
+      - name: Configure macOS ARM64
+        if: runner.os == 'macOS'
+        shell: bash
+        run: >-
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES=arm64
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=14
+          -DBUILD_TESTS=ON -DSKIP_BUILD_TESTS=ON
+
+      - name: Configure Windows x64
+        if: runner.os == 'Windows'
+        shell: bash
+        run: >-
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTS=ON -DSKIP_BUILD_TESTS=ON
+          ${{ steps.dependencies.outputs.vcpkg-cmake-config }}
+
+      - name: Build
+        shell: bash
+        run: cmake --build build --config Release --parallel 8
+
+      - name: Run existing unit and protocol tests
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir build/src/unittests --build-config Release --output-on-failure
+
+      - name: Package
+        shell: bash
+        run: cmake --build build --config Release --target package --parallel 8
+
+      - name: Confirm requested installer exists
+        shell: bash
+        run: |
+          shopt -s nullglob
+          packages=(build/deskflow[-_]*.${{ matrix.package-extension }})
+          if (( ${#packages[@]} == 0 )); then
+            echo "Expected ${{ matrix.package-extension }} installer was not generated" >&2
+            exit 1
+          fi
+          printf '%s\n' "${packages[@]}"
+
+      - name: Smoke test packaged Core
+        uses: ./.github/actions/test-package
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v7
+        with:
+          name: keyboard-follow-${{ matrix.name }}
+          path: |
+            build/deskflow[-_]*.${{ matrix.package-extension }}
+            build/deskflow[-_]*-portable.zip
+          if-no-files-found: error
