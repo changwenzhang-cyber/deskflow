@@ -118,6 +118,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          # Visual Studio places this multi-config target under Release/, while
+          # the configured WiX patch references build/deploy/wix-custom.dll.
+          Copy-Item build/deploy/Release/wix-custom.dll build/deploy/wix-custom.dll -ErrorAction Stop
           cpack --config build/CPackConfig.cmake -G WIX -C Release -B build
           $packageExit = $LASTEXITCODE
           if ($packageExit -ne 0) {
